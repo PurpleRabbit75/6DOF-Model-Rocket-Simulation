@@ -19,9 +19,9 @@ dt=0.01;
 servo_delay_n=0.08;
 
 %Control Gains
-kp=1;
-kd=0.1;
-ki=1;
+kp=1; % Proportional
+kd=0.1; % Integral
+ki=1; % Derivative
 
 %% Vehicle Parameter Error (variance from nominal values)
 %Misalignment of TVC Mount on Y and Z axes (in m)
@@ -36,34 +36,83 @@ static_error_y_v=1;
 static_error_z_v=1;
 l_v=0.01;
 
-%% Monte-Carlo
-runs=100;
-results=struct;
-tic
-for k=1:runs
-    Ix_mc=Ix_n+randn*Ix_v;
-    Iy_mc=Iy_n+randn*Iy_v;
-    Iz_mc=Iz_n+randn*Iz_v;
+%% Simulation Parameters
+sim_time=8; % Simulation time in seconds
+cpu_cores=4; % Number of CPU cores to use for parallel processing (if applicable)
+runs=100; % Number of runs for Monte-Carlo simulation
+filename = 'TVC6DOF_Results.xlsx';
 
-    m_dry_mc=m_dry_n+randn*m_dry_v;
-    l_mc=l_n+randn*l_v;
-    servo_delay_mc=servo_delay_n+randn*servo_delay_v;
-    mis_y_mc=randn*mis_y_v;
-    mis_z_mc=randn*mis_z_v;
-    static_error_y_mc=randn*static_error_y_v;
-    static_error_z_mc=randn*static_error_z_v;
-    
-    sim('TVC6DOF_sim.slx',7);
-    results.run(k)=ans;
+%% Monte-Carlo
+
+% 1. Open parallel pool if not already open
+if isempty(gcp('nocreate'))
+    parpool(cpu_cores);
 end
+
+
+% 2. Pre-allocate an array of SimulationInput objects
+in(runs) = Simulink.SimulationInput('TVC6DOF_sim');
+tic % Start timer
+for k = 1:runs
+    % Create a SimulationInput object for this run
+    in(k) = Simulink.SimulationInput('TVC6DOF_sim');
+
+    % Set simulation duration
+    in(k) = in(k).setVariable('sim_time', sim_time);
+
+    % Set perturbation parameters for this run
+    in(k) = in(k).setVariable('Ix_mc', Ix_n + randn*Ix_v);
+    in(k) = in(k).setVariable('Iy_mc', Iy_n + randn*Iy_v);
+    in(k) = in(k).setVariable('Iz_mc', Iz_n + randn*Iz_v);
+    in(k) = in(k).setVariable('m_dry_mc', m_dry_n + randn*m_dry_v);
+    in(k) = in(k).setVariable('l_mc', l_n + randn*l_v);
+    in(k) = in(k).setVariable('servo_delay_mc', servo_delay_n + randn*servo_delay_v);
+    in(k) = in(k).setVariable('mis_y_mc', randn*mis_y_v);
+    in(k) = in(k).setVariable('mis_z_mc', randn*mis_z_v);
+    in(k) = in(k).setVariable('static_error_y_mc', randn*static_error_y_v);
+    in(k) = in(k).setVariable('static_error_z_mc', randn*static_error_z_v);
+    
+end
+
+% 3. Run with parsim in parallel
+results = parsim(in, 'ShowProgress', 'on');
 toc
+
+%% Aggregate & Save Results
+fprintf("Aggregating & Saving Results...\n");
+tic
+
+varNames = {'acceleration', 'angularVelocity', 'position', 'quaternion', 'velocity'};
+aggregatedData = struct();
+
+for i = 1:length(results)
+    % Initialize table with the time vector ('tout')
+    runTable = table(results(i).tout, 'VariableNames', {'Time'});
+    
+    % Add each struct's data to the table
+    for j = 1:length(varNames)
+        vName = varNames{j};
+        runTable.(vName) = results(i).(vName).signals.values;
+    end
+    
+    aggregatedData.(['run_' num2str(i)]) = runTable;
+    writetable(runTable, sprintf('output\\run_%d.csv', i));
+end
+
+toc
+fprintf("Data has been collected into struct aggregatedData and saved to \\output\n");
+
+
+
 
 %% Plotting Simulated Trajectories
 figure(1)
 for i=1:runs
-    plot3(results.run(1,i).position.signals.values(:,2),results.run(1,i).position.signals.values(:,3),results.run(1,i).position.signals.values(:,1))
+    plot3(results(i).position.signals.values(:,2),results(i).position.signals.values(:,3),results(i).position.signals.values(:,1))
     hold on
 end
+
+fprintf("Plotting...\n");
 title(sprintf('%d Simulated Monte-Carlo Flight Trajectories',runs))
 xlabel('Downrange (m)')
 ylabel('Crossrange (m)')
