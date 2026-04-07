@@ -37,12 +37,13 @@ static_error_z_v=1;
 l_v=0.01;
 
 %% Simulation Parameters
-sim_time=8; % Simulation time in seconds
+sim_time=16; % Simulation time in seconds
 cpu_cores=4; % Number of CPU cores to use for parallel processing (if applicable)
-runs=100; % Number of runs for Monte-Carlo simulation
+runs=50; % Number of runs for Monte-Carlo simulation
 filename = 'TVC6DOF_Results.xlsx';
 
 %% Monte-Carlo
+
 
 % 1. Open parallel pool if not already open
 if isempty(gcp('nocreate'))
@@ -75,7 +76,7 @@ for k = 1:runs
 end
 
 % 3. Run with parsim in parallel
-results = parsim(in, 'ShowProgress', 'on');
+results = parsim(in, 'ShowProgress', 'on', 'UseFastRestart', 'on'); 
 toc
 
 %% Aggregate & Save Results
